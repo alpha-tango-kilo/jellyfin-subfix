@@ -1,35 +1,33 @@
-use std::{
-    env, io,
-    path::{Path, PathBuf},
-};
+use std::{env, io, path::Path};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use log::{debug, error, info, warn};
 use walkdir::WalkDir;
 
 fn main() {
     env_logger::builder().format_timestamp(None).init();
     debug!("Hello, world!");
-    env::args_os().skip(1).for_each(|arg| {
-        let path = PathBuf::from(arg);
+    env::args().skip(1).for_each(|arg| {
+        let path = Utf8PathBuf::from(arg);
         if path.is_dir() {
             if let Err(why) = process(&path) {
-                error!("failed to process {}: {why}", path.display());
+                error!("failed to process {path}: {why}");
             }
         } else {
-            error!("{} is not a folder, ignoring", path.display());
+            error!("{path} is not a folder, ignoring");
         }
     });
 }
 
-fn process(path: &Path) -> anyhow::Result<()> {
-    info!("discovering video files in {}", path.display());
-    let videos = discover_videos(path);
-    info!("videos in {}: {videos:?}", path.display());
+fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
+    info!("discovering video files in {}", path.as_ref());
+    let videos = discover_videos(path.as_ref());
+    info!("videos in {}: {videos:?}", path.as_ref());
     Ok(())
 }
 
-fn discover_videos(in_dir: impl AsRef<Path>) -> Vec<PathBuf> {
-    WalkDir::new(in_dir)
+fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
+    WalkDir::new(in_dir.as_ref())
         .min_depth(1)
         .max_depth(1)
         .contents_first(true)
@@ -39,6 +37,13 @@ fn discover_videos(in_dir: impl AsRef<Path>) -> Vec<PathBuf> {
             Ok(ent) => Some(ent.path().to_owned()),
             Err(why) => {
                 warn!("{why}");
+                None
+            },
+        })
+        .filter_map(|path| match Utf8PathBuf::try_from(path.clone()) {
+            Ok(path) => Some(path),
+            Err(_) => {
+                warn!("skipped non-UTF-8 path {}", path.display());
                 None
             },
         })
