@@ -1,9 +1,12 @@
 use std::{env, io, path::Path};
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use env_logger::Env;
-use log::{debug, error, info, warn, LevelFilter};
+use isolang::Language;
+use log::{debug, error, info, trace, warn, LevelFilter};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use walkdir::WalkDir;
 
 fn main() {
@@ -81,7 +84,7 @@ fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
         .collect()
 }
 
-fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
+fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
     WalkDir::new(in_root_dir.as_ref())
         .min_depth(1)
         .sort_by_file_name()
@@ -107,7 +110,36 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
                 },
             }
         })
+        .filter_map(|path| match Subtitle::new(path.clone()) {
+            Ok(sub) => Some(sub),
+            Err(why) => {
+                warn!("failed to process {path}, skipping: {why}");
+                None
+            },
+        })
         .collect()
+}
+
+#[derive(Debug)]
+struct Subtitle {
+    path: Utf8PathBuf,
+    lang: Language,
+}
+
+static NUMBER_PREFIX_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"^\d+_"#).unwrap());
+
+impl Subtitle {
+    fn new(path: Utf8PathBuf) -> anyhow::Result<Self> {
+        let file_name =
+            path.file_stem().expect("subtitle should have file name");
+        trace!("regexing {file_name:?}");
+        let language = NUMBER_PREFIX_REGEX.splitn(file_name, 2).last().unwrap();
+        info!("guessing language is {language:?}");
+        let lang = Language::from_name(language)
+            .ok_or_else(|| anyhow!("couldn't find language {:?}", language))?;
+        Ok(Self { path, lang })
+    }
 }
 
 mod predicates {
