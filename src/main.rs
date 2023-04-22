@@ -151,8 +151,8 @@ mod predicates {
     use regex::{Regex, RegexBuilder};
     use walkdir::DirEntry;
 
-    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv"];
-    const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx"];
+    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi"];
+    const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx", "ass", "dts"];
 
     static QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
         RegexBuilder::new(r#" - ((720p)|(1080p)|(4K( HDR)?))$"#)
@@ -212,6 +212,12 @@ mod predicates {
                 .unwrap_or_default()
         })
     }
+}
+
+mod jellyfin_flags {
+    const DEFAULT: &str = "default";
+    const FORCED: &str = "forced";
+    const HEARING_IMPAIRED: &str = "cc";
 }
 
 #[cfg(unix)]
