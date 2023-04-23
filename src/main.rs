@@ -139,15 +139,24 @@ fn create_symlinks(
         .for_each(|(video_path, subtitle)| {
             let subtitle_name = {
                 let mut path = in_root_dir.as_ref().to_owned();
-                let file_name = format!(
-                    "{path}.{lang}.{ext}",
-                    path = video_path.file_stem().unwrap(),
-                    lang = subtitle
-                        .lang
-                        .to_639_1()
-                        .unwrap_or(subtitle.lang.to_639_3()),
-                    ext = subtitle.path.extension().unwrap(),
-                );
+                let file_name = {
+                    let mut file_name =
+                        video_path.file_stem().unwrap().to_owned();
+                    file_name.push('.');
+                    file_name.push_str(
+                        subtitle
+                            .lang
+                            .to_639_1()
+                            .unwrap_or(subtitle.lang.to_639_3()),
+                    );
+                    if subtitle.lang == Language::Eng {
+                        file_name.push('.');
+                        file_name.push_str(jellyfin_flags::DEFAULT)
+                    }
+                    file_name.push('.');
+                    file_name.push_str(subtitle.path.extension().unwrap());
+                    file_name
+                };
                 path.push(file_name);
                 path
             };
@@ -279,9 +288,9 @@ mod predicates {
 
 #[allow(unused)]
 mod jellyfin_flags {
-    const DEFAULT: &str = "default";
-    const FORCED: &str = "forced";
-    const HEARING_IMPAIRED: &str = "cc";
+    pub const DEFAULT: &str = "default";
+    pub const FORCED: &str = "forced";
+    pub const HEARING_IMPAIRED: &str = "cc";
 }
 
 // Nothing is symlinked except in release builds
