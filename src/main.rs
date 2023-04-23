@@ -52,6 +52,8 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
         return Ok(());
     }
     info!("subtitles in {}: {subs:?}", path.as_ref());
+    create_symlinks(path.as_ref(), &videos, &subs);
+    info!("done!");
     Ok(())
 }
 
@@ -118,6 +120,46 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
             },
         })
         .collect()
+}
+
+fn create_symlinks(
+    in_root_dir: impl AsRef<Utf8Path>,
+    videos: &[Utf8PathBuf],
+    subtitles: &[Subtitle],
+) {
+    videos
+        .iter()
+        .flat_map(|video_path| {
+            subtitles.iter().map(move |subtitle| (video_path, subtitle))
+        })
+        .for_each(|(video_path, subtitle)| {
+            let subtitle_name = {
+                let mut path = in_root_dir.as_ref().to_owned();
+                let file_name = format!(
+                    "{path}.{lang}.{ext}",
+                    path = video_path.file_stem().unwrap(),
+                    lang = subtitle
+                        .lang
+                        .to_639_1()
+                        .unwrap_or(subtitle.lang.to_639_3()),
+                    ext = subtitle.path.extension().unwrap(),
+                );
+                path.push(file_name);
+                path
+            };
+            info!(
+                "naming {} symlink for {} to {}",
+                subtitle.lang.to_name(),
+                video_path.file_name().unwrap(),
+                subtitle_name.file_name().unwrap(),
+            );
+            if let Err(why) = symlink(&subtitle.path, &subtitle_name) {
+                error!(
+                    "failed to create symlink {} -> {subtitle_name}: {why}",
+                    &subtitle.path
+                );
+            }
+        });
 }
 
 #[derive(Debug)]
@@ -214,6 +256,7 @@ mod predicates {
     }
 }
 
+#[allow(unused)]
 mod jellyfin_flags {
     const DEFAULT: &str = "default";
     const FORCED: &str = "forced";
