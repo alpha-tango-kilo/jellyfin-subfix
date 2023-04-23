@@ -46,12 +46,13 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
             );
         },
     }
-    let subs = discover_subtitles(path.as_ref());
+    let mut subs = discover_subtitles(path.as_ref());
     if subs.is_empty() {
         info!("no subtitles found in {}, nothing to do", path.as_ref());
         return Ok(());
     }
     info!("subtitles in {}: {subs:?}", path.as_ref());
+    remove_duplicate_languages(&mut subs);
     create_symlinks(path.as_ref(), &videos, &subs);
     info!("done!");
     Ok(())
@@ -102,7 +103,10 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
         .filter(predicates::is_subtitle)
         .filter_map(|dir_entry| {
             match Utf8PathBuf::try_from(dir_entry.path().to_owned()) {
-                Ok(path) => Some(path),
+                Ok(path) => {
+                    info!("found {path}");
+                    Some(path)
+                },
                 Err(_) => {
                     warn!(
                         "skipped non-UTF-8 path {}",
@@ -160,6 +164,23 @@ fn create_symlinks(
                 );
             }
         });
+}
+
+fn remove_duplicate_languages(subs: &mut Vec<Subtitle>) {
+    let mut seen = Vec::new();
+    subs.retain(|sub| {
+        if seen.contains(&sub.lang) {
+            warn!(
+                "skipping duplicate {} subtitle {}",
+                sub.lang.to_name(),
+                &sub.path
+            );
+            false
+        } else {
+            seen.push(sub.lang);
+            true
+        }
+    });
 }
 
 #[derive(Debug)]
@@ -263,15 +284,20 @@ mod jellyfin_flags {
     const HEARING_IMPAIRED: &str = "cc";
 }
 
+// Nothing is symlinked except in release builds
 #[cfg(unix)]
 fn symlink(
     actual_file: impl AsRef<Path>,
     link_here: impl AsRef<Path>,
 ) -> io::Result<()> {
     use std::os::unix::fs;
-    fs::symlink(actual_file, link_here)
+    match cfg!(debug_assertions) {
+        false => fs::symlink(actual_file, link_here),
+        true => Ok(()),
+    }
 }
 
+// Nothing is symlinked except in release builds
 #[cfg(windows)]
 fn symlink(
     actual_file: impl AsRef<Path>,
@@ -279,5 +305,8 @@ fn symlink(
 ) -> io::Result<()> {
     use std::os::windows::fs;
     assert!(std::fs::metadata(actual_file.as_ref())?.is_file());
-    fs::symlink_file(actual_file, link_here)
+    match cfg!(debug_assertions) {
+        false => fs::symlink_file(actual_file, link_here),
+        true => Ok(()),
+    }
 }
