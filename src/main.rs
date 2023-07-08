@@ -1,12 +1,12 @@
-use std::{env, io, path::Path};
+use std::{env, io, path::Path, str::FromStr};
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use env_logger::Env;
 use isolang::Language;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use walkdir::WalkDir;
 
 fn main() {
@@ -32,9 +32,9 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
     let videos = discover_videos(path.as_ref());
     match videos.len() {
         0 => bail!("didn't find any videos in {}", path.as_ref()),
-        1 => info!("found {}", &videos[0]),
+        1 => info!("found {}", &videos[0].path),
         _ => {
-            info!("videos in {}: {videos:?}", path.as_ref());
+            info!("videos in {}: {videos:#?}", path.as_ref());
             if !predicates::different_versions_same_media(videos.iter()) {
                 bail!(
                     "unsure that all videos are different versions of the \
@@ -58,7 +58,7 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
+fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Video> {
     WalkDir::new(in_dir.as_ref())
         .min_depth(1)
         .max_depth(1)
@@ -74,7 +74,16 @@ fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Utf8PathBuf> {
         .filter(predicates::is_video)
         .filter_map(|dir_entry| {
             match Utf8PathBuf::try_from(dir_entry.path().to_owned()) {
-                Ok(path) => Some(path),
+                Ok(path) => match Video::from_path(path) {
+                    Ok(video) => Some(video),
+                    Err(why) => {
+                        warn!(
+                            "skipped path {}: {why}",
+                            dir_entry.path().display()
+                        );
+                        None
+                    },
+                },
                 Err(_) => {
                     warn!(
                         "skipped non-UTF-8 path {}",
@@ -126,22 +135,22 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
         .collect()
 }
 
-fn create_symlinks(
+fn create_symlinks<'a>(
     in_root_dir: impl AsRef<Utf8Path>,
-    videos: &[Utf8PathBuf],
+    videos: impl IntoIterator<Item = &'a Video>,
     subtitles: &[Subtitle],
 ) {
     videos
-        .iter()
-        .flat_map(|video_path| {
-            subtitles.iter().map(move |subtitle| (video_path, subtitle))
+        .into_iter()
+        .flat_map(|video| {
+            subtitles.iter().map(move |subtitle| (video, subtitle))
         })
-        .for_each(|(video_path, subtitle)| {
+        .for_each(|(video, subtitle)| {
             let subtitle_name = {
                 let mut path = in_root_dir.as_ref().to_owned();
                 let file_name = {
                     let mut file_name =
-                        video_path.file_stem().unwrap().to_owned();
+                        video.path.file_stem().unwrap().to_owned();
                     file_name.push('.');
                     file_name.push_str(
                         subtitle
@@ -163,7 +172,7 @@ fn create_symlinks(
             info!(
                 "naming {} symlink for {} to {}",
                 subtitle.lang.to_name(),
-                video_path.file_name().unwrap(),
+                video.path.file_name().unwrap(),
                 subtitle_name.file_name().unwrap(),
             );
             if let Err(why) = symlink(&subtitle.path, &subtitle_name) {
@@ -193,6 +202,57 @@ fn remove_duplicate_languages(subs: &mut Vec<Subtitle>) {
 }
 
 #[derive(Debug)]
+struct Video {
+    path: Utf8PathBuf,
+    series_info: Option<SeriesInfo>,
+}
+
+impl Video {
+    fn from_path(path: Utf8PathBuf) -> anyhow::Result<Self> {
+        let series_info = match SERIES_INFO_REGEX.find(path.as_str()) {
+            Some(series_info) => {
+                info!("found series info in {path}");
+                series_info.as_str().parse::<SeriesInfo>()?.into()
+            },
+            None => None,
+        };
+        Ok(Video { path, series_info })
+    }
+}
+
+impl AsRef<Utf8Path> for Video {
+    fn as_ref(&self) -> &Utf8Path {
+        self.path.as_ref()
+    }
+}
+
+static SERIES_INFO_REGEX: Lazy<Regex> = Lazy::new(|| {
+    RegexBuilder::new(r#"S\d{2}E\d{2}"#)
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+});
+
+#[derive(Debug, Copy, Clone)]
+struct SeriesInfo {
+    season: u8,
+    episode: u8,
+}
+
+impl FromStr for SeriesInfo {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 6 || !SERIES_INFO_REGEX.is_match(s) {
+            bail!("doesn't match pattern S01E01");
+        }
+        let season = s[1..3].parse().context("couldn't parse season")?;
+        let episode = s[4..6].parse().context("couldn't parse episode")?;
+        Ok(SeriesInfo { season, episode })
+    }
+}
+
+#[derive(Debug)]
 struct Subtitle {
     path: Utf8PathBuf,
     lang: Language,
@@ -217,7 +277,7 @@ impl Subtitle {
 mod predicates {
     use std::ffi::OsStr;
 
-    use camino::Utf8PathBuf;
+    use camino::Utf8Path;
     use log::{error, info, trace};
     use once_cell::sync::Lazy;
     use regex::{Regex, RegexBuilder};
@@ -265,12 +325,14 @@ mod predicates {
     }
 
     // Assumes files has 2 or more elements
-    pub fn different_versions_same_media<'a>(
-        mut files: impl Iterator<Item = &'a Utf8PathBuf>,
+    pub fn different_versions_same_media(
+        files: impl IntoIterator<Item = impl AsRef<Utf8Path>>,
     ) -> bool {
+        let mut files = files.into_iter();
         let first = files
             .next()
             .expect("files iter should have at least two elements");
+        let first = first.as_ref();
         let first_name = first.file_stem().expect("file has no name");
         trace!("regexing {first_name:?}");
         let Some(name_prefix) = QUALITY_SUFFIX_REGEX.splitn(first_name, 2).next() else {
@@ -279,7 +341,8 @@ mod predicates {
         };
         info!("guessing movie/episode name is {name_prefix:?}");
         files.all(|file| {
-            file.file_stem()
+            file.as_ref()
+                .file_stem()
                 .map(|name| name.starts_with(name_prefix))
                 .unwrap_or_default()
         })
