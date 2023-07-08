@@ -1,4 +1,4 @@
-use std::{env, io, path::Path, str::FromStr};
+use std::{env, io, num::NonZeroU8, path::Path, str::FromStr};
 
 use anyhow::{anyhow, bail, Context};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -35,6 +35,11 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
         1 => info!("found {}", &videos[0].path),
         _ => {
             info!("videos in {}: {videos:#?}", path.as_ref());
+            if !(predicates::no_series(videos.iter())
+                || predicates::all_a_series(videos.iter()))
+            {
+                bail!("can't mix series and movies");
+            }
             if !predicates::different_versions_same_media(videos.iter()) {
                 bail!(
                     "unsure that all videos are different versions of the \
@@ -51,7 +56,7 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
         info!("no subtitles found in {}, nothing to do", path.as_ref());
         return Ok(());
     }
-    info!("subtitles in {}: {subs:?}", path.as_ref());
+    info!("subtitles in {}: {subs:#?}", path.as_ref());
     remove_duplicate_languages(&mut subs);
     create_symlinks(path.as_ref(), &videos, &subs);
     info!("done!");
@@ -135,16 +140,17 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
         .collect()
 }
 
-fn create_symlinks<'a>(
+fn create_symlinks(
     in_root_dir: impl AsRef<Utf8Path>,
-    videos: impl IntoIterator<Item = &'a Video>,
+    videos: &[Video],
     subtitles: &[Subtitle],
 ) {
     videos
-        .into_iter()
+        .iter()
         .flat_map(|video| {
             subtitles.iter().map(move |subtitle| (video, subtitle))
         })
+        .filter(|(video, subtitle)| video.series_info == subtitle.series_info)
         .for_each(|(video, subtitle)| {
             let subtitle_name = {
                 let mut path = in_root_dir.as_ref().to_owned();
@@ -187,7 +193,7 @@ fn create_symlinks<'a>(
 fn remove_duplicate_languages(subs: &mut Vec<Subtitle>) {
     let mut seen = Vec::new();
     subs.retain(|sub| {
-        if seen.contains(&sub.lang) {
+        if seen.contains(&(sub.lang, sub.series_info)) {
             warn!(
                 "skipping duplicate {} subtitle {}",
                 sub.lang.to_name(),
@@ -195,14 +201,14 @@ fn remove_duplicate_languages(subs: &mut Vec<Subtitle>) {
             );
             false
         } else {
-            seen.push(sub.lang);
+            seen.push((sub.lang, sub.series_info));
             true
         }
     });
 }
 
 #[derive(Debug)]
-struct Video {
+pub struct Video {
     path: Utf8PathBuf,
     series_info: Option<SeriesInfo>,
 }
@@ -217,6 +223,10 @@ impl Video {
             None => None,
         };
         Ok(Video { path, series_info })
+    }
+
+    fn part_of_series(&self) -> bool {
+        self.series_info.is_some()
     }
 }
 
@@ -233,10 +243,10 @@ static SERIES_INFO_REGEX: Lazy<Regex> = Lazy::new(|| {
         .unwrap()
 });
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 struct SeriesInfo {
-    season: u8,
-    episode: u8,
+    season: NonZeroU8,
+    episode: NonZeroU8,
 }
 
 impl FromStr for SeriesInfo {
@@ -256,6 +266,7 @@ impl FromStr for SeriesInfo {
 struct Subtitle {
     path: Utf8PathBuf,
     lang: Language,
+    series_info: Option<SeriesInfo>,
 }
 
 static NUMBER_PREFIX_REGEX: Lazy<Regex> =
@@ -270,7 +281,20 @@ impl Subtitle {
         info!("guessing language is {language:?}");
         let lang = Language::from_name(language)
             .ok_or_else(|| anyhow!("couldn't find language {:?}", language))?;
-        Ok(Self { path, lang })
+
+        let series_info = match SERIES_INFO_REGEX.find(path.as_str()) {
+            Some(series_info) => {
+                info!("found series info in {path}");
+                series_info.as_str().parse::<SeriesInfo>()?.into()
+            },
+            None => None,
+        };
+
+        Ok(Self {
+            path,
+            lang,
+            series_info,
+        })
     }
 }
 
@@ -283,11 +307,13 @@ mod predicates {
     use regex::{Regex, RegexBuilder};
     use walkdir::DirEntry;
 
+    use crate::Video;
+
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi"];
     const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx", "ass", "dts"];
 
-    static QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
-        RegexBuilder::new(r#" - ((720p)|(1080p)|(4K( HDR)?))$"#)
+    static SEASON_AND_QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
+        RegexBuilder::new(r#" (S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$"#)
             .case_insensitive(true)
             .build()
             .unwrap()
@@ -324,6 +350,16 @@ mod predicates {
                 .unwrap_or_default()
     }
 
+    pub fn all_a_series<'a>(
+        videos: impl IntoIterator<Item = &'a Video>,
+    ) -> bool {
+        videos.into_iter().all(|vid| vid.part_of_series())
+    }
+
+    pub fn no_series<'a>(videos: impl IntoIterator<Item = &'a Video>) -> bool {
+        videos.into_iter().all(|vid| !vid.part_of_series())
+    }
+
     // Assumes files has 2 or more elements
     pub fn different_versions_same_media(
         files: impl IntoIterator<Item = impl AsRef<Utf8Path>>,
@@ -335,7 +371,7 @@ mod predicates {
         let first = first.as_ref();
         let first_name = first.file_stem().expect("file has no name");
         trace!("regexing {first_name:?}");
-        let Some(name_prefix) = QUALITY_SUFFIX_REGEX.splitn(first_name, 2).next() else {
+        let Some(name_prefix) = SEASON_AND_QUALITY_SUFFIX_REGEX.splitn(first_name, 2).next() else {
             error!("couldn't find quality suffix in {first}");
             return false;
         };
