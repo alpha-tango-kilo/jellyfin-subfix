@@ -19,9 +19,9 @@ This results in one symlink per language, per version of the movie
 For the most part, anything that's considered an error just results in that thing being skipped, as opposed to the program completely bombing out.
 The logs should be pretty communicative about what's happening
 
-## Future plans
+Also supports series, where the series information should be specified in the file name before the quality suffix (see `test_dir/series`)
 
-Supporting TV series
+## Future plans
 
 Supporting multiple subtitles of the same language, and flagging whether the subtitle track should be made default, marked as forced / foreign / hearing impaired.
 Probably going to pull in [`bat`](https://github.com/sharkdp/bat) to show previews of subtitle files and get the user to select the flags etc.
