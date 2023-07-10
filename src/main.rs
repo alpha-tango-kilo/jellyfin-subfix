@@ -15,7 +15,9 @@ fn main() {
         .parse_env(Env::new().filter("SUBFIX_LOG"))
         .format_timestamp(None)
         .init();
+    let mut no_args = true;
     env::args().skip(1).for_each(|arg| {
+        no_args = false;
         let path = Utf8PathBuf::from(arg);
         if path.is_dir() {
             if let Err(why) = process(&path) {
@@ -25,6 +27,12 @@ fn main() {
             error!("{path} is not a folder, ignoring");
         }
     });
+    if no_args {
+        info!("assuming current directory");
+        if let Err(why) = process(Utf8Path::new(".")) {
+            error!("failed to process this directory: {why}");
+        }
+    }
 }
 
 fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
