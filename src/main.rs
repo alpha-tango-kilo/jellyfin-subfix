@@ -313,7 +313,7 @@ mod predicates {
     const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx", "ass", "dts"];
 
     static SEASON_AND_QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
-        RegexBuilder::new(r#" (S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$"#)
+        RegexBuilder::new(r#"( S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$"#)
             .case_insensitive(true)
             .build()
             .unwrap()
