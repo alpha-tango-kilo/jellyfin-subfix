@@ -37,12 +37,14 @@ fn main() {
 
 fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
     info!("discovering video files in {}", path.as_ref());
-    let videos = discover_videos(path.as_ref());
+    let path = path.as_ref();
+    env::set_current_dir(path).context("failed to move into directory")?;
+    let videos = discover_videos(path);
     match videos.len() {
-        0 => bail!("didn't find any videos in {}", path.as_ref()),
+        0 => bail!("didn't find any videos in {}", path),
         1 => info!("found {}", &videos[0].path),
         _ => {
-            info!("videos in {}: {videos:#?}", path.as_ref());
+            info!("videos in {path}: {videos:#?}");
             if !(predicates::no_series(videos.iter())
                 || predicates::all_a_series(videos.iter()))
             {
@@ -59,14 +61,14 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
             );
         },
     }
-    let mut subs = discover_subtitles(path.as_ref());
+    let mut subs = discover_subtitles(path);
     if subs.is_empty() {
-        info!("no subtitles found in {}, nothing to do", path.as_ref());
+        info!("no subtitles found in {path}, nothing to do");
         return Ok(());
     }
-    info!("subtitles in {}: {subs:#?}", path.as_ref());
+    info!("subtitles in {path}: {subs:#?}");
     remove_duplicate_languages(&mut subs);
-    create_symlinks(path.as_ref(), &videos, &subs);
+    create_symlinks(path, &videos, &subs);
     info!("done!");
     Ok(())
 }
@@ -379,7 +381,9 @@ mod predicates {
         let first = first.as_ref();
         let first_name = first.file_stem().expect("file has no name");
         trace!("regexing {first_name:?}");
-        let Some(name_prefix) = SEASON_AND_QUALITY_SUFFIX_REGEX.splitn(first_name, 2).next() else {
+        let Some(name_prefix) =
+            SEASON_AND_QUALITY_SUFFIX_REGEX.splitn(first_name, 2).next()
+        else {
             error!("couldn't find quality suffix in {first}");
             return false;
         };
