@@ -247,7 +247,7 @@ impl AsRef<Utf8Path> for Video {
 }
 
 static SERIES_INFO_REGEX: Lazy<Regex> = Lazy::new(|| {
-    RegexBuilder::new(r#"S\d{2}E\d{2}"#)
+    RegexBuilder::new(r"S\d{2}E\d{2}")
         .case_insensitive(true)
         .build()
         .unwrap()
@@ -280,7 +280,7 @@ struct Subtitle {
 }
 
 static NUMBER_PREFIX_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"^\d+_"#).unwrap());
+    Lazy::new(|| Regex::new(r"^\d+_").unwrap());
 
 impl Subtitle {
     fn new(path: Utf8PathBuf) -> anyhow::Result<Self> {
@@ -323,7 +323,7 @@ mod predicates {
     const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx", "ass", "dts"];
 
     static SEASON_AND_QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
-        RegexBuilder::new(r#"( S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$"#)
+        RegexBuilder::new(r"( S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$")
             .case_insensitive(true)
             .build()
             .unwrap()
