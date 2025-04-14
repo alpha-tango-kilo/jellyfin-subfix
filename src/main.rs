@@ -38,7 +38,7 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
     info!("discovering video files in {}", path.as_ref());
     let path = path.as_ref();
     env::set_current_dir(path).context("failed to move into directory")?;
-    let videos = discover_videos(Utf8Path::new("."));
+    let videos = discover_videos();
     match videos.len() {
         0 => bail!("didn't find any videos in {}", path),
         1 => info!("found {}", &videos[0].path),
@@ -60,20 +60,20 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
             );
         },
     }
-    let mut subs = discover_subtitles(path);
+    let mut subs = discover_subtitles();
     if subs.is_empty() {
         info!("no subtitles found in {path}, nothing to do");
         return Ok(());
     }
     info!("subtitles in {path}: {subs:#?}");
     remove_duplicate_languages(&mut subs);
-    create_symlinks(path, &videos, &subs);
+    create_symlinks(&videos, &subs);
     info!("done!");
     Ok(())
 }
 
-fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Video> {
-    WalkDir::new(in_dir.as_ref())
+fn discover_videos() -> Vec<Video> {
+    WalkDir::new(".")
         .min_depth(1)
         .max_depth(1)
         .contents_first(true)
@@ -110,8 +110,8 @@ fn discover_videos(in_dir: impl AsRef<Utf8Path>) -> Vec<Video> {
         .collect()
 }
 
-fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
-    WalkDir::new(in_root_dir.as_ref())
+fn discover_subtitles() -> Vec<Subtitle> {
+    WalkDir::new(".")
         .min_depth(1)
         .sort_by_file_name()
         .follow_links(false)
@@ -149,11 +149,7 @@ fn discover_subtitles(in_root_dir: impl AsRef<Utf8Path>) -> Vec<Subtitle> {
         .collect()
 }
 
-fn create_symlinks(
-    in_root_dir: impl AsRef<Utf8Path>,
-    videos: &[Video],
-    subtitles: &[Subtitle],
-) {
+fn create_symlinks(videos: &[Video], subtitles: &[Subtitle]) {
     videos
         .iter()
         .flat_map(|video| {
@@ -162,7 +158,7 @@ fn create_symlinks(
         .filter(|(video, subtitle)| video.series_info == subtitle.series_info)
         .for_each(|(video, subtitle)| {
             let subtitle_name = {
-                let mut path = in_root_dir.as_ref().to_owned();
+                let mut path = Utf8PathBuf::from(".");
                 let file_name = {
                     let mut file_name =
                         video.path.file_stem().unwrap().to_owned();
