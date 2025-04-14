@@ -38,7 +38,7 @@ fn process(path: impl AsRef<Utf8Path>) -> anyhow::Result<()> {
     info!("discovering video files in {}", path.as_ref());
     let path = path.as_ref();
     env::set_current_dir(path).context("failed to move into directory")?;
-    let videos = discover_videos(path);
+    let videos = discover_videos(Utf8Path::new("."));
     match videos.len() {
         0 => bail!("didn't find any videos in {}", path),
         1 => info!("found {}", &videos[0].path),
