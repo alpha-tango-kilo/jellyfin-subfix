@@ -26,4 +26,7 @@ default-features = false
 features = ["auto-color"]
 
 [profile.release]
+opt-level = "z"
 lto = true
+panic = "abort"
+strip = true
