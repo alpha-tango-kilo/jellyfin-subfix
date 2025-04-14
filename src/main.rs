@@ -176,7 +176,7 @@ fn create_symlinks(
                     );
                     if subtitle.lang == Language::Eng {
                         file_name.push('.');
-                        file_name.push_str(jellyfin_flags::DEFAULT)
+                        file_name.push_str(jellyfin_flags::DEFAULT);
                     }
                     file_name.push('.');
                     file_name.push_str(subtitle.path.extension().unwrap());
@@ -363,7 +363,7 @@ mod predicates {
     pub fn all_a_series<'a>(
         videos: impl IntoIterator<Item = &'a Video>,
     ) -> bool {
-        videos.into_iter().all(|vid| vid.part_of_series())
+        videos.into_iter().all(Video::part_of_series)
     }
 
     pub fn no_series<'a>(videos: impl IntoIterator<Item = &'a Video>) -> bool {
