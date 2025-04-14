@@ -204,7 +204,6 @@ dependencies = [
  "env_logger",
  "isolang",
  "log",
- "once_cell",
  "regex",
  "walkdir",
 ]

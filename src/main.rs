@@ -1,11 +1,10 @@
-use std::{env, io, num::NonZeroU8, path::Path, str::FromStr};
+use std::{env, io, num::NonZeroU8, path::Path, str::FromStr, sync::LazyLock};
 
 use anyhow::{anyhow, bail, Context};
 use camino::{Utf8Path, Utf8PathBuf};
 use env_logger::Env;
 use isolang::Language;
 use log::{debug, error, info, trace, warn, LevelFilter};
-use once_cell::sync::Lazy;
 use regex::{Regex, RegexBuilder};
 use walkdir::WalkDir;
 
@@ -246,7 +245,7 @@ impl AsRef<Utf8Path> for Video {
     }
 }
 
-static SERIES_INFO_REGEX: Lazy<Regex> = Lazy::new(|| {
+static SERIES_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     RegexBuilder::new(r"S\d{2}E\d{2}")
         .case_insensitive(true)
         .build()
@@ -279,8 +278,8 @@ struct Subtitle {
     series_info: Option<SeriesInfo>,
 }
 
-static NUMBER_PREFIX_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\d+_").unwrap());
+static NUMBER_PREFIX_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\d+_").unwrap());
 
 impl Subtitle {
     fn new(path: Utf8PathBuf) -> anyhow::Result<Self> {
@@ -313,21 +312,23 @@ mod predicates {
 
     use camino::Utf8Path;
     use log::{error, info, trace};
-    use once_cell::sync::Lazy;
     use regex::{Regex, RegexBuilder};
     use walkdir::DirEntry;
 
-    use crate::Video;
+    use super::*;
 
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "avi"];
     const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "vtt", "idx", "ass", "dts"];
 
-    static SEASON_AND_QUALITY_SUFFIX_REGEX: Lazy<Regex> = Lazy::new(|| {
-        RegexBuilder::new(r"( S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$")
+    static SEASON_AND_QUALITY_SUFFIX_REGEX: LazyLock<Regex> =
+        LazyLock::new(|| {
+            RegexBuilder::new(
+                r"( S\d{2}E\d{2})? - ((720p)|(1080p)|(4K( HDR)?))$",
+            )
             .case_insensitive(true)
             .build()
             .unwrap()
-    });
+        });
 
     fn ext_in(ext: &OsStr, group: &[&str]) -> bool {
         group
